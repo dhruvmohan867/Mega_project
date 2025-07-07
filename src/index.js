@@ -3,8 +3,11 @@ import mongoose from 'mongoose'
 import express from 'express'
 import { DB_NAME } from './constants.js';
 import connectDB from './db/index.js';
-const app = express()
+import { app } from './app.js' // <-- Import the app
+
 const PORT = process.env.PORT
+
+
 connectDB()
 .then(()=>{
      app.listen(PORT || 8000, ()=>{
