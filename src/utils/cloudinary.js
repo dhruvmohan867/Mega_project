@@ -18,6 +18,7 @@ const uploadCloudinary = async(localFilePath)=>{
      })
      console.log("File upload ho gyi hai")
      console.log(response.url)
+     fs.unlinkSync(localFilePath) // Delete the local file after upload
      return response;
    }
    catch(error){
