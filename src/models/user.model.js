@@ -13,15 +13,15 @@ const userSchema = new Schema({
     required : true,
     unique : true
     },
-    fullname :{
+  fullname :{
     type : String,
     required : true,
     trim : true,
     index : true
   },
   avatar :{
-    type : String 
-    
+    type : String ,
+    requried : true
   },
   coverImage:{
     type : String,
