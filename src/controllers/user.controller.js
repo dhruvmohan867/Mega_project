@@ -18,8 +18,7 @@ import { ApiError }   from "../utils/ApiError.js";      // Custom error class �
 import { User }       from "../models/user.model.js";    // Mongoose user schema & model
 import { uploadCloudinary } from  "../utils/cloudinary.js"; // Helper that uploads a local file path to Cloudinary and returns { url, ... }
 import { ApiResponse } from "../utils/ApiResponce.js";   // Standard success envelope  { statusCode, data, message }
-
-
+import jwt from "jsonwebtoken"; // For generating JWT tokens
 
 // ────────────────────────────────────────────────
 // 1.  Register User
@@ -104,68 +103,47 @@ const registerUser = asyncHandler(async (req, res) => {
 // Purpose : Verify credentials, issue JWT access & refresh tokens
 // ────────────────────────────────────────────────
 const loginUser = asyncHandler(async (req, res) => {
-    // Extract credentials
     const { email, username, password } = req.body;
 
-    // Basic input validation
     if (!email && !username) {
-        // At least one identifier is required
-        throw new ApiError(400, "Email or Username are required");
+        throw new ApiError(400, "Email or Username is required");
     }
 
-    // Attempt to locate user by email OR username
     const user = await User.findOne({
         $or: [{ email }, { username }]
     });
+
     if (!user) {
         throw new ApiError(404, "User not found");
     }
 
-    // Verify plaintext password against hashed password stored in DB – implemented as instance method on schema
     const isPasswordMatch = await user.isPasswordCorrect(password);
     if (!isPasswordMatch) {
         throw new ApiError(401, "Invalid credentials");
     }
 
-    // Helper function to generate signed JWTs and persist refresh token inside DB
-    const generateAccessAndRefreshToken = async (userId) => {
-        try {
-            const user = await User.findById(userId);
+    // ✅ Generate tokens using instance methods
+    const accessToken = user.generateAccessToken();
+    const refreshToken = user.generateRefreshToken();
 
-            // Instance methods defined on schema (e.g., user.generateAccessToken()) return signed tokens
-            const accessToken  = user.generateAccessToken();
-            const refreshToken = user.generateRefreshToken();
+    // ✅ Save refresh token to DB
+    user.refreshtoken = refreshToken;
+    await user.save({ validateBeforeSave: false });
 
-            // Persist the new refresh token
-            user.refreshtoken = refreshToken;
-            await user.save({ validateBeforeSave: false });
-
-            return { accessToken, refreshToken };
-        } catch (error) {
-            throw new ApiError(500, "Error generating tokens");
-        }
-    };
-
-    // Issue tokens for this session
-    const { refreshToken, accessToken } = await generateAccessAndRefreshToken(user._id);
-
-    // Omit sensitive fields before sending user back to client
     const createdUser = await User.findById(user._id).select("-password -refreshtoken");
 
-    // Cookie options – httpOnly prevents JS access, secure ensures HTTPS, sameSite=None allows cross‑site if needed
+    // ✅ Set secure cookie options
     const options = {
         httpOnly: true,
-        secure:   true
-        // sameSite intentionally not set to allow default (can adjust based on front‑end origin)
+        secure: true,
+        sameSite: "None" // use this if you're testing cross-site or HTTPS
     };
 
-    // NOTE: There is a typo in the following chain – `.cokkie` should be `.cookie`.
-    //       Without fixing, Express will throw a TypeError.
-
+    // ✅ Send cookies and response
     return res
         .status(200)
-        .cookie("accessToken",  accessToken,  options)  // Set short‑lived access token
-        .cookie("refreshToken", refreshToken, options)  // Set long‑lived refresh token
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
         .json(new ApiResponse(200, { user: createdUser, accessToken, refreshToken }, "Login successful"));
 });
 
@@ -193,10 +171,41 @@ const logoutUser = asyncHandler(async (req, res) => {
     // Clear both cookies by setting them to null with same options & an immediate expiry (default when value = null)
     return res
         .status(200)
-        .cookie("accessToken",  null, options)
-        .cookie("refreshToken", null, options)
+        .cookie("accessToken",  undefined, options)
+        .cookie("refreshToken", undefined, options)
         .json(new ApiResponse(200, null, "Logout successful"));
 });
+const refreshAccessToken = asyncHandler(async (req, res) => {
+
+    const refreshToken12= req.cookies.refreshToken || req.body.refreshToken;
+    if (!refreshToken12) {
+        throw new ApiError(401, "Refresh token is required");
+    }
+    // Verify the refresh token
+    try {
+        const decodedToken = jwt.verify(refreshToken, process.env.REFRESH_TOKEN_SECRET)
+        const user =  await  User.findById(decodedToken._id)
+        if(!user){
+            throw new ApiError(401, "Invalid refresh token");
+        }
+        if(refreshToken12 !== user.refreshtoken){
+            throw new ApiError(401, "Refresh token is expired or used");
+        }
+        const options = {
+            httpOnly: true,
+            secure: true,
+            sameSite: "None" // Required for third‑party contexts when secure=true
+        };
+        const {accessToken, newrefreshToken} = await generateAccesAndRefreshTokens(user._id);
+        return res
+            .status(200)
+            .cookie("accessToken", accessToken, options)
+            .cookie("newrefreshToken", newrefreshToken, options)
+            .json(new ApiResponse(200, { accessToken, newrefreshToken }, "Access token refreshed successfully"));
+    } catch (error) {
+        throw new ApiError(401, "Invalid refresh token");
+    }
+})
 
 // Export controller functions for use in routes
-export { registerUser, loginUser, logoutUser };
+export { registerUser, loginUser, logoutUser , refreshAccessToken };
