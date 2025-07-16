@@ -206,6 +206,72 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
         throw new ApiError(401, "Invalid refresh token");
     }
 })
+const changeCurrentpassword = asyncHandler(async (req,res)=>{
+    const {oldpassword, newpassword} = req.body;
+    const user = await User.findById(res.user?._id);
+    const isPasswordMatch = await user.isPasswordCorrect(oldpassword);
+    if(!isPasswordMatch) {
+        throw new ApiError(401, "Old password is incorrect");
+    }
+    user.password = newpassword;
+    await user.save({ validateBeforeSave: false });
+    return res
+    .status(200)
+    .json(new ApiResponse(200, null, "Password changed successfully"));
+})
+const ChangeaccountDetails = asyncHandler(async (res,req)=>{
+      const {fullname , email} = req.body;
+      const user = await User.findByIdAndUpdate(res.user?._id, {
+                    $set :{
+                      fullname,
+                      email
+                    } 
+      } , { new : true}).select("-password -refreshtoken");
+
+      
+      return res
+      .status(200)
+      .json(new ApiResponse(200)  , user , "Account details updated successfully");
+      
+})
+const changeAvatarAndCoverPhoto = asyncHandler(async (req, res) => {
+  const avatarFile = req.files?.avatar?.[0];
+  const coverImageFile = req.files?.coverImage?.[0];
+
+  if (!avatarFile || !coverImageFile) {
+    throw new ApiError(400, "Avatar and cover image are required");
+  }
+
+  const avatarUpload = await uploadCloudinary(avatarFile.path);
+  const coverImageUpload = await uploadCloudinary(coverImageFile.path);
+
+  if (!avatarUpload?.url || !coverImageUpload?.url) {
+    throw new ApiError(500, "Failed to upload images");
+  }
+
+  if (!req.user?._id) {
+    throw new ApiError(401, "Unauthorized");
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    {
+      $set: {
+        avatar: avatarUpload.url,
+        coverImage: coverImageUpload.url,
+      },
+    },
+    { new: true }
+  ).select("-password -refreshtoken");
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, user, "Avatar and cover image updated successfully"));
+});
 
 // Export controller functions for use in routes
-export { registerUser, loginUser, logoutUser , refreshAccessToken };
+export { registerUser, loginUser, logoutUser , refreshAccessToken , changeCurrentpassword , ChangeaccountDetails , changeAvatarAndCoverPhoto };
