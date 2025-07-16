@@ -271,7 +271,7 @@ const changeAvatarAndCoverPhoto = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(new ApiResponse(200, user, "Avatar and cover image updated successfully"));
-});
+}); 
 
 // Export controller functions for use in routes
 export { registerUser, loginUser, logoutUser , refreshAccessToken , changeCurrentpassword , ChangeaccountDetails , changeAvatarAndCoverPhoto };
