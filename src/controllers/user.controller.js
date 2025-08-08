@@ -272,64 +272,90 @@ const changeAvatarAndCoverPhoto = asyncHandler(async (req, res) => {
     .status(200)
     .json(new ApiResponse(200, user, "Avatar and cover image updated successfully"));
 }); 
-const getUserChannel = asyncHandler(async(req, res) => {
-         const userId = req.params.userId;  
-         if (!userId) {
-            throw new ApiError(400, "User ID is required");
-         } 
-         const channel = await User.aggregate([
-          {
-              $match: { 
-                _id: new mongoose.Types.ObjectId(userId) 
-            }
-           },
-            {
-                $lookup: {
-                    from: "subscriptions",
-                    localField: "_id",
-                    foreignField: "channel",
-                    as: "Subscriptions"
-                }
-            },
-            {
-                $lookup: {
-                    from: "subscriptions",
-                    localField: "_id",
-                    foreignField: "subscriber",
-                    as: "Subscribedto"
-                }
-            },
-            {
-                   $addFields: {
-                    subscribersCount: { $size: "$Subscribers" },
-                    subscribedToCount: { $size: "$Subscribedto" },
-                    isSubscribed: {  
-                        $cond: {
-                            if: { $in: [req.user?._id, "$subscribers.subscriber"] },
-                            then: true,
-                            else: false
-                        }
+const getUserChannel = asyncHandler(async (req, res) => {
+  const identifier = req.params.userId;
+  if (!identifier) {
+    throw new ApiError(400, "Identifier is required");
+  }
+
+  const currentUserId = req.user?._id;
+
+  const channel = await User.aggregate([
+    {
+      $match: {
+        $or: [
+          { username: identifier },
+          { _id: mongoose.Types.ObjectId.isValid(identifier) 
+              ? new mongoose.Types.ObjectId(identifier) 
+              : null 
+          }
+        ]
+      }
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "channel",
+        as: "subscribers"
+      }
+    },
+    {
+      $lookup: {
+        from: "subscriptions",
+        localField: "_id",
+        foreignField: "subscriber",
+        as: "subscribedTo"
+      }
+    },
+    {
+      $addFields: {
+        subscribersCount: { $size: "$subscribers" },
+        subscribedToCount: { $size: "$subscribedTo" },
+        isSubscribed: {
+          $cond: {
+            if: {
+              $gt: [
+                {
+                  $size: {
+                    $filter: {
+                      input: "$subscribers",
+                      as: "sub",
+                      cond: {
+                        $eq: ["$$sub.subscriber", currentUserId]
+                      }
                     }
-                } 
+                  }
+                },
+                0
+              ]
             },
-            {
-                $project: {
-                    fullname: 1,
-                    username: 1,
-                    avatar: 1,
-                    coverImage: 1,
-                    subscribersCount: 1,
-                    subscribedToCount: 1,
-                    isSubscribed: 1
-                   
-                }
-            }   ])
-        if(!channel?.length) {
-            throw new ApiError(404, "Channel not found");
+            then: true,
+            else: false
+          }
         }
-        return res
-            .status(200)
-            .json(new ApiResponse(200, channel[0], "User channel details retrieved successfully"));
-})
+      }
+    },
+    {
+      $project: {
+        fullname: 1,
+        username: 1,
+        avatar: 1,
+        coverImage: 1,
+        subscribersCount: 1,
+        subscribedToCount: 1,
+        isSubscribed: 1
+      }
+    }
+  ]);
+
+  if (!channel?.length) {
+    throw new ApiError(404, "Channel not found");
+  }
+
+  return res.status(200).json(
+    new ApiResponse(200, channel[0], "User channel details retrieved successfully")
+  );
+});
 // Export controller functions for use in routes
 export { registerUser, loginUser, logoutUser , refreshAccessToken , changeCurrentpassword , ChangeaccountDetails , changeAvatarAndCoverPhoto , getUserChannel };
